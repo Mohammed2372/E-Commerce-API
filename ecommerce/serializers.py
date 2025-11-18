@@ -6,9 +6,7 @@ from .models import Product, Category
 
 class ProductSerializer(ModelSerializer):
     category = serializers.SlugRelatedField(
-        queryset=Category.objects.all(),
-        slug_field="name",
-        many=True,
+        slug_field="name", many=True, read_only=True
     )
 
     class Meta:
@@ -16,7 +14,6 @@ class ProductSerializer(ModelSerializer):
         fields = [
             "id",
             "name",
-            "description",
             "category",
             "price",
             "in_stock",
@@ -25,6 +22,16 @@ class ProductSerializer(ModelSerializer):
 
 
 class ProductDetailSerializer(ModelSerializer):
+    category = serializers.SlugRelatedField(
+        queryset=Category.objects.all(), slug_field="name", many=True
+    )
+
     class Meta:
         model = Product
+        fields = "__all__"
+
+
+class CategorySerializer(ModelSerializer):
+    class Meta:
+        model = Category
         fields = "__all__"
