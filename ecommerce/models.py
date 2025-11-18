@@ -26,18 +26,25 @@ class Product(models.Model):
 
 
 class Cart(models.Model):
-    user = models.ForeignKey(
+    STATUS_CHOICES = [
+        ("Active", "Active"),
+        ("Paid", "Paid (Order History)"),
+        ("Cancelled", "Cancelled"),
+    ]
+
+    user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart"
     )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="Active")
     created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Cart for {self.user.username}"
 
     @property
     def total_price(self):
         total = sum(item.subtotal for item in self.items.all())
         return (total, 2)
+
+    def __str__(self):
+        return f"Cart for {self.user.username}"
 
 
 class CartItem(models.Model):

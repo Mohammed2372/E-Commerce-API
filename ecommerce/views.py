@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, filters, permissions, mixins, status
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
@@ -37,26 +38,37 @@ class ProductViewSet(viewsets.ModelViewSet):
     search_fields = ["name", "description"]
 
 
+# --- Cart ViewSet ---
+# Helper function to ensure we always interact with the user's current ACTIVE cart
+def get_active_cart(user):
+    # This ensures items go to the one shopping cart that is currently 'Active'
+    # If no active cart exists, it creates one.
+    cart, created = Cart.objects.get_or_create(user=user, status="Active")
+    return cart
+
+
 class CartViewSet(
-    mixins.ListModelMixin,  # Enables GET /cart/ to list all carts (if user has multiple)
-    mixins.RetrieveModelMixin,  # GET /cart/ to retrieve the cart details
-    mixins.DestroyModelMixin,  # DELETE /cart/ to clear the cart (optional: delete by ID)
     viewsets.GenericViewSet,  # Base class for custom actions
 ):
     queryset = Cart.objects.all()
     serializer_class = CartSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    def get_queryset(self):
-        return Cart.objects.filter(user=self.request.user).order_by("-created_at")
+    # 1. RETRIEVE (GET /cart/my_cart/) - Retrieves the user's active cart
+    @action(detail=False, methods=["get"], url_path="my_cart")
+    def retrieve_active_cart(self, request):
+        cart = get_active_cart(request.user)
+        serializer = self.get_serializer(cart)
+        return Response(serializer.data)
 
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @action(detail=False, methods=["post"], serializer_class=CartItemSerializer)
+    # 2. ADD ITEM (POST /cart/add_item/) - Adds item to the active cart
+    @action(
+        detail=False,
+        methods=["post"],
+        serializer_class=CartItemSerializer,
+        url_path="add_item",
+        permission_classes=[permissions.IsAuthenticated],
+    )
     def add_item(self, request):
         user = request.user
         product_id = request.data.get("product_id")
@@ -81,7 +93,13 @@ class CartViewSet(
             )
 
         try:
-            cart, created = Cart.objects.get_or_create(user=user)
+            cart = get_active_cart(user)
+            if cart.status != "Active":
+                return Response(
+                    {"error": "Cannot add items to a paid or closed cart."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
             product = Product.objects.get(pk=product_id)
 
             cart_item, item_created = CartItem.objects.get_or_create(
@@ -102,7 +120,60 @@ class CartViewSet(
             )
 
         except Product.DoesNotExist:
-            return Response({"error": "Product not found."}, status=404)
+            return Response(
+                {"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
-            # NOTE: This is a general error catch, add more specific validation checks later
-            return Response({"error": str(e)}, status=400)
+            return Response(
+                {"error": f"An unexpected error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+    # 3. CHECKOUT (POST /cart/checkout/) - Converts active cart to 'Paid'
+    @action(detail=False, methods=["post"], url_path="checkout")
+    def checkout(self, request):
+        cart = get_active_cart(request.user)
+        if cart.status != "Active":
+            return Response(
+                {
+                    "error": f"Cart {cart.pk} is already marked as {cart.status} and cannot be checked out."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not cart.items.exists():
+            return Response(
+                {"error": "Cannot check out an empty cart."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cart.status = "Paid"
+        cart.save()
+
+        serializer = CartSerializer(cart)
+        return Response(
+            {
+                "message": f"Cart {cart.pk} successfully converted to Paid order. A new active cart will be implicitly created upon your next 'add_item' call.",
+                "order": serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    # 4. CLEAR (POST /cart/clear_active/) - Clears all items from the active cart
+    @action(detail=False, methods=["post"])
+    def clear_active_cart(self, request):
+        cart = get_active_cart(request.user)
+
+        if cart.status != "Active":
+            return Response(
+                {"error": "Cannot clear a cart that is already paid/closed."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cart.items.all().delete()
+
+        serializer = CartSerializer(cart)
+        return Response(
+            {"message": "Active cart has been cleared.", "cart": serializer.data},
+            status=status.HTTP_200_OK,
+        )
