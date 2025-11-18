@@ -48,11 +48,19 @@ def get_active_cart(user):
 
 
 class CartViewSet(
+    mixins.ListModelMixin,  # Enables GET /cart/ to list all carts (History)
     viewsets.GenericViewSet,  # Base class for custom actions
 ):
     queryset = Cart.objects.all()
     serializer_class = CartSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    # get user's carts
+    def get_queryset(self):
+        # Orders by status (so 'Active' cart is often last) and then by creation date.
+        return Cart.objects.filter(user=self.request.user).order_by(
+            "status", "-created_at"
+        )
 
     # 1. RETRIEVE (GET /cart/my_cart/) - Retrieves the user's active cart
     @action(detail=False, methods=["get"], url_path="my_cart")
@@ -170,10 +178,34 @@ class CartViewSet(
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        cart.items.all().delete()
-
-        serializer = CartSerializer(cart)
+        cart.delete()
         return Response(
-            {"message": "Active cart has been cleared.", "cart": serializer.data},
-            status=status.HTTP_200_OK,
+            {"message": "Active cart has been completely deleted."},
+            status=status.HTTP_204_NO_CONTENT,
         )
+
+
+class CartItemViewSet(
+    mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
+):
+    serializer_class = CartItemSerializer
+    permission_class = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        active_cart = get_active_cart(self.request.user)
+        return CartItem.objects.filter(cart=active_cart)
+
+    def perform_update(self, serializer):
+        cart_item = self.get_object()
+        if cart_item.cart.status != "Active":
+            raise permissions.PermissionDenied(
+                "Cannot modify items in a closed or paid cart."
+            )
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if instance.cart.status != "Active":
+            raise permissions.PermissionDenied(
+                "Cannot delete items in a closed or paid cart."
+            )
+        instance.delete()

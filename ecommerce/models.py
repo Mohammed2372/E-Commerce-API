@@ -29,11 +29,11 @@ class Cart(models.Model):
     STATUS_CHOICES = [
         ("Active", "Active"),
         ("Paid", "Paid (Order History)"),
-        ("Cancelled", "Cancelled"),
+        # ("Cancelled", "Cancelled"),
     ]
 
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cart"
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="carts"
     )
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default="Active")
     created_at = models.DateTimeField(auto_now_add=True)
