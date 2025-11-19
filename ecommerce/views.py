@@ -1,9 +1,10 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, filters, permissions, mixins, status
+from rest_framework import viewsets, filters, permissions, mixins, status, generics
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db import transaction  # for safe stock management
+from django.contrib.auth.models import User
 
 
 from .models import Product, Cart, CartItem
@@ -12,6 +13,7 @@ from .serializers import (
     ProductDetailSerializer,
     CartSerializer,
     CartItemSerializer,
+    UserRegistrationSerializer,
 )
 from .permissions import IsAdminOrReadOnly
 from .filters import ProductFilter
@@ -262,3 +264,10 @@ class CartItemViewSet(
 
             # delete cart
             instance.delete()
+
+
+# --- Registration --- #
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = [permissions.AllowAny]
+    serializer_class = UserRegistrationSerializer
