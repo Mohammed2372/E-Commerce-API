@@ -3,6 +3,7 @@ from rest_framework import viewsets, filters, permissions, mixins, status
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from django.db import transaction  # for safe stock management
 
 
 from .models import Product, Cart, CartItem
@@ -100,42 +101,57 @@ class CartViewSet(
                 {"error": "Product ID is required."}, status=status.HTTP_400_BAD_REQUEST
             )
 
-        try:
-            cart = get_active_cart(user)
-            if cart.status != "Active":
-                return Response(
-                    {"error": "Cannot add items to a paid or closed cart."},
-                    status=status.HTTP_403_FORBIDDEN,
+        with transaction.atomic():
+            try:
+                cart = get_active_cart(user)
+                if cart.status != "Active":
+                    return Response(
+                        {"error": "Cannot add items to a paid or closed cart."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+
+                product = Product.objects.get(pk=product_id)
+
+                cart_item, item_created = CartItem.objects.get_or_create(
+                    cart=cart, product=product, defaults={"quantity": quantity}
                 )
 
-            product = Product.objects.get(pk=product_id)
+                quantity_to_add = quantity
 
-            cart_item, item_created = CartItem.objects.get_or_create(
-                cart=cart, product=product, defaults={"quantity": quantity}
-            )
+                if product.in_stock < quantity:
+                    return Response(
+                        {
+                            "error": f"Insufficient stock. Only {product.in_stock} units available."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-            if not item_created:
-                cart_item.quantity += quantity
+                # --- INVENTORY UPDATE ---
+                product.in_stock -= quantity_to_add
+                product.save()
+
+                # --- CART UPDATE ---
+                cart_item.quantity += quantity_to_add
                 cart_item.save()
 
-            cart.refresh_from_db()
-            serializer = CartSerializer(cart)
-            return Response(
-                serializer.data,
-                status=status.HTTP_200_OK
-                if not item_created
-                else status.HTTP_201_CREATED,
-            )
+                cart.refresh_from_db()
+                serializer = CartSerializer(cart)
+                return Response(
+                    serializer.data,
+                    status=status.HTTP_200_OK
+                    if not item_created
+                    else status.HTTP_201_CREATED,
+                )
 
-        except Product.DoesNotExist:
-            return Response(
-                {"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            return Response(
-                {"error": f"An unexpected error occurred: {str(e)}"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            except Product.DoesNotExist:
+                return Response(
+                    {"error": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+                )
+            except Exception as e:
+                return Response(
+                    {"error": f"An unexpected error occurred: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
     # 3. CHECKOUT (POST /cart/checkout/) - Converts active cart to 'Paid'
     @action(detail=False, methods=["post"], url_path="checkout")
@@ -189,7 +205,7 @@ class CartItemViewSet(
     mixins.UpdateModelMixin, mixins.DestroyModelMixin, viewsets.GenericViewSet
 ):
     serializer_class = CartItemSerializer
-    permission_class = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         active_cart = get_active_cart(self.request.user)
@@ -197,15 +213,52 @@ class CartItemViewSet(
 
     def perform_update(self, serializer):
         cart_item = self.get_object()
-        if cart_item.cart.status != "Active":
-            raise permissions.PermissionDenied(
-                "Cannot modify items in a closed or paid cart."
-            )
+
+        with transaction.atomic():
+            if cart_item.cart.status != "Active":
+                raise permissions.PermissionDenied(
+                    "Cannot modify items in a closed or paid cart."
+                )
+            new_quantity = serializer.validated_data.get("quantity")
+            old_quantity = cart_item.quantity
+
+            if new_quantity is None:
+                return serializer.save()
+
+            quantity_difference = new_quantity - old_quantity
+
+            # check stock for the requested change
+            if quantity_difference > 0:
+                product = cart_item.product
+                if product.in_stock < quantity_difference:
+                    raise permissions.PermissionDenied(
+                        f"Insufficient stock to increase quantity. Only {product.in_stock} units available."
+                    )
+
+                # Decrease stock
+                product.in_stock -= quantity_difference
+                product.save()
+            elif quantity_difference < 0:
+                # If quantity decreases, return stock
+                product = cart_item.product
+                product.in_stock -= (
+                    quantity_difference  # Subtracting a negative returns stock
+                )
+                product.save()
+        # save
         serializer.save()
 
     def perform_destroy(self, instance):
-        if instance.cart.status != "Active":
-            raise permissions.PermissionDenied(
-                "Cannot delete items in a closed or paid cart."
-            )
-        instance.delete()
+        with transaction.atomic():
+            if instance.cart.status != "Active":
+                raise permissions.PermissionDenied(
+                    "Cannot delete items in a closed or paid cart."
+                )
+
+            # return stock to inventory
+            product = instance.product
+            product.in_stock += instance.quantity
+            product.save()
+
+            # delete cart
+            instance.delete()
