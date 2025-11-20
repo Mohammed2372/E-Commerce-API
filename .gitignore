@@ -8,8 +8,8 @@ __pycache__/
 *.pyc
 
 # Local databases
-#*.sqlite3
-#db.sqlite3
+*.sqlite3
+db.sqlite3
 
 # Django media and static files
 staticfiles/
