@@ -5,7 +5,15 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from .views import ProductViewSet, CartViewSet, CartItemViewSet, RegisterView
+from .views import (
+    ProductViewSet,
+    CartViewSet,
+    CartItemViewSet,
+    RegisterView,
+    LoginView,
+    LogoutView,
+    UserView,
+)
 
 
 app_name = "products"
@@ -18,8 +26,11 @@ urlpatterns = [
     # Main API routes
     path("", include(router.urls)),
     # Authentication Endpoints
+    path("user/", UserView.as_view(), name="user"),
     path("register/", RegisterView.as_view(), name="register"),
-    path("login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    # path("login/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("login/", LoginView.as_view(), name="login"),
+    path("logout/", LogoutView.as_view(), name="logout"),
     path("refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api-auth/", include("rest_framework.urls")),
 ]

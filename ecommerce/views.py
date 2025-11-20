@@ -5,6 +5,10 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db import transaction  # for safe stock management
 from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
+from django.conf import settings
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 
 from .models import Product, Cart, CartItem
@@ -14,6 +18,7 @@ from .serializers import (
     CartSerializer,
     CartItemSerializer,
     UserRegistrationSerializer,
+    UserDetailSerializer,
 )
 from .permissions import IsAdminOrReadOnly
 from .filters import ProductFilter
@@ -271,3 +276,71 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = [permissions.AllowAny]
     serializer_class = UserRegistrationSerializer
+
+
+# --- Login Authentication --- #
+## helper function for tokens
+def get_tokens_for_user(user):
+    refresh = RefreshToken.for_user(user)
+    return {
+        "refresh": str(refresh),
+        "access": str(refresh.access_token),
+    }
+
+
+class LoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request) -> Response:
+        username = request.data.get("username")
+        password = request.data.get("password")
+        user = authenticate(username=username, password=password)
+
+        if user is not None:
+            tokens = get_tokens_for_user(user)
+            response = Response(
+                {"message": "Login successful"}, status=status.HTTP_200_OK
+            )
+
+            # Set Access Token Cookie
+            response.set_cookie(
+                key="access_token",
+                value=tokens["access"],
+                httponly=True,
+                secure=not settings.DEBUG,
+                samesite="Lax",
+                max_age=300,  # 5 minutes
+            )
+
+            # Set Refresh Token Cookie
+            response.set_cookie(
+                key="refresh_token",
+                value=tokens["refresh"],
+                httponly=True,
+                secure=not settings.DEBUG,
+                samesite="Lax",
+                max_age=86400,  # 1 day
+            )
+            return response
+
+        return Response(
+            {"error": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED
+        )
+
+
+class LogoutView(APIView):
+    def post(self, request) -> Response:
+        response = Response({"message": "Logout successful"})
+        response.delete_cookie("access_token")
+        response.delete_cookie("refresh_token")
+        return response
+
+
+# --- User --- #
+class UserView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserDetailSerializer(request.user)
+        print("serializer is working: ", serializer.data)
+        return Response(serializer.data)

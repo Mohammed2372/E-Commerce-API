@@ -102,3 +102,10 @@ class UserRegistrationSerializer(ModelSerializer):
         )
 
         return user
+
+
+# --- User Detail --- #
+class UserDetailSerializer(ModelSerializer):
+    class Meta:
+        model = User
+        fields = ["id", "username", "email"]
