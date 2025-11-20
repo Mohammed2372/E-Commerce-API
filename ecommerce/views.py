@@ -1,11 +1,9 @@
-from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction  # for safe stock management
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
+
 from rest_framework import viewsets, filters, permissions, mixins, status, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
