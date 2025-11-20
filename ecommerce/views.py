@@ -11,6 +11,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 
+import stripe
+
+
 from .models import Product, Cart, CartItem
 from .serializers import (
     ProductSerializer,
@@ -22,6 +25,10 @@ from .serializers import (
 )
 from .permissions import IsAdminOrReadOnly
 from .filters import ProductFilter
+
+
+# CONFIGURE STRIPE
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 # Create your views here.
@@ -163,7 +170,9 @@ class CartViewSet(
     # 3. CHECKOUT (POST /cart/checkout/) - Converts active cart to 'Paid'
     @action(detail=False, methods=["post"], url_path="checkout")
     def checkout(self, request):
+        stripe.api_key = settings.STRIPE_SECRET_KEY
         cart = get_active_cart(request.user)
+
         if cart.status != "Active":
             return Response(
                 {
@@ -178,19 +187,81 @@ class CartViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        cart.status = "Paid"
-        cart.save()
+        # Calculate total amount in CENTS (Stripe requirement)
+        # total_price is a tuple (value, decimals), we want the value
+        amount_decimal = cart.total_price[0]
+        amount_in_cents = int(amount_decimal * 100)
 
-        serializer = CartSerializer(cart)
-        return Response(
-            {
-                "message": f"Cart {cart.pk} successfully converted to Paid order. A new active cart will be implicitly created upon your next 'add_item' call.",
-                "order": serializer.data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        try:
+            # Create a PaymentIntent with the order amount and currency
+            intent = stripe.PaymentIntent.create(
+                amount=amount_in_cents,
+                currency="usd",
+                metadata={
+                    "cart_id": cart.id,
+                    "user_id": request.user.id,
+                },
+                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
+            )
 
-    # 4. CLEAR (POST /cart/clear_active/) - Clears all items from the active cart
+            # Send the client_secret to the frontend
+            return Response(
+                {
+                    "clientSecret": intent["client_secret"],
+                    "publishableKey": settings.STRIPE_PUBLISHABLE_KEY,  # Helper for frontend
+                    "amount": amount_decimal,
+                }
+            )
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=400)
+
+    # 4. CONFIRM PAYMENT (post /cart/confirm_payment/) - confirm payment to active cart
+    @action(detail=False, methods=["post"], url_path="confirm_payment")
+    def confirm_payment(self, request):
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        payment_intent_id = request.data.get("payment_intent_id")
+
+        if not payment_intent_id:
+            return Response({"error": "Missing payment_intent_id"}, status=400)
+
+        cart = get_active_cart(request.user)
+
+        try:
+            # retrieve payment intent from stripe to verify status
+            intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+
+            if intent["status"] == "succeeded":
+                # ensure this payment was meant for this specific cart
+                if intent["metadata"].get("cart_id") != str(cart.id):
+                    return Response(
+                        {"error": "Payment ID mismatch for this cart"}, status=400
+                    )
+
+                # change cart from active to paid
+                cart.status = "paid"
+                cart.save()
+
+                serializer = CartSerializer(cart)
+                return Response(
+                    {
+                        "message": "Payment confirmed and order placed!",
+                        "order": serializer.data,
+                    }
+                )
+
+            else:
+                return Response(
+                    {"error": f"Payment not successful. Status: {intent['status']}"},
+                    status=400,
+                )
+
+        except stripe.error.StripeError as e:
+            return Response({"error": str(e)}, status=400)
+        except Exception as e:
+            return Response({"error": "An unexpected error occurred"}, status=400)
+
+    # 5. CLEAR (POST /cart/clear_active/) - Clears all items from the active cart
     @action(detail=False, methods=["post"])
     def clear_active_cart(self, request):
         cart = get_active_cart(request.user)

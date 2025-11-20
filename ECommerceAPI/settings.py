@@ -160,3 +160,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5500",
     "http://localhost:3000",  # React (common port)
 ]
+
+# --- STRIPE CONFIGURATION --- #
+STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")

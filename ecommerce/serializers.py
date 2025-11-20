@@ -17,7 +17,7 @@ class ProductSerializer(ModelSerializer):
             "name",
             "category",
             "price",
-            "in_stock",
+            # "in_stock",  # to not show how many are there when showing active cart
         ]
 
 
