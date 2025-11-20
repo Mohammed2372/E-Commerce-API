@@ -2,6 +2,9 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
 # Custom authentication class to extract JWT token from cookies
+# NOTE: When you make requests from JavaScript (React, Angular, or Vanilla JS),
+# you must include credentials: 'include' (or withCredentials: true in Axios).
+# If you forget this, the browser will ignore the cookie.
 class CookiesJWTAuthentication(JWTAuthentication):
     def authenticate(self, request):
         # check standard header first

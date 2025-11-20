@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "django_filters",
     "debug_toolbar",
     "rest_framework_simplejwt",
+    "corsheaders",
 ]
 
 MIDDLEWARE = [
@@ -55,6 +56,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
+    "corsheaders.middleware.CorsMiddleware"
 ]
 
 ROOT_URLCONF = "ECommerceAPI.urls"
@@ -147,3 +149,14 @@ SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
 }
+
+# --- CORS CONFIGURATION --- #
+# to make django does not block frontend form security rules (CORS)
+CORS_ALLOW_CREDENTIALS = True
+
+# The list of ports that are allowed to talk to Django
+CORS_ALLOWED_ORIGINS = [
+    "http://127.0.0.1:5500",  # Your frontend (VS Code Live Server / Python http.server)
+    "http://localhost:5500",
+    "http://localhost:3000",  # React (common port)
+]

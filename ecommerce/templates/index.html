@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT Cookie Tester</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .card {
+            border: 1px solid #ccc;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        input {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 8px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button.logout {
+            background: #dc3545;
+        }
+
+        pre {
+            background: #f4f4f4;
+            padding: 10px;
+            overflow-x: auto;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .error-box {
+            background: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            display: none;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>🍪 HttpOnly JWT Tester</h2>
+
+    <!-- Login Section -->
+    <div id="login-section" class="card">
+        <h3>Login</h3>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="login()">Login</button>
+        <div id="login-error" class="error-box"></div>
+    </div>
+
+    <!-- User Dashboard (Hidden until logged in) -->
+    <div id="dashboard-section" class="card hidden">
+        <h3>Welcome!</h3>
+        <p>You are logged in. The JWT is hidden in your browser cookies.</p>
+
+        <button onclick="getUserData()">Get User Data (Protected)</button>
+        <button onclick="logout()" class="logout">Logout</button>
+
+        <h4>API Response:</h4>
+        <pre id="response-output">Waiting for action...</pre>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://127.0.0.1:8000'; // Ensure this matches your Django Port
+
+        function showError(msg) {
+            const errBox = document.getElementById('login-error');
+            errBox.style.display = 'block';
+            errBox.innerText = msg;
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const errBox = document.getElementById('login-error');
+            errBox.style.display = 'none';
+
+            // --- DEBUG LOGS START ---
+            console.log("%c--- LOGIN ATTEMPT STARTED ---", "color: blue; font-weight: bold");
+            console.log(`Target URL: ${BASE_URL}/login/`);
+            console.log(`Username: ${username}`);
+            // --- DEBUG LOGS END ---
+
+            try {
+                console.log("Sending fetch request...");
+                const response = await fetch(`${BASE_URL}/login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // "include" tells the browser to ACCEPT the Set-Cookie header
+                    credentials: 'include',
+                    body: JSON.stringify({ username, password })
+                });
+
+                console.log("Response Status:", response.status);
+                console.log("Response OK?", response.ok);
+
+                const data = await response.json();
+                console.log("Response Body:", data);
+
+                if (response.ok) {
+                    console.log("%cLogin Successful!", "color: green");
+                    document.getElementById('login-section').classList.add('hidden');
+                    document.getElementById('dashboard-section').classList.remove('hidden');
+                    document.getElementById('response-output').textContent = JSON.stringify(data, null, 2);
+                } else {
+                    console.warn("Login Failed Logic Triggered");
+                    showError('Login Failed: ' + JSON.stringify(data));
+                }
+            } catch (err) {
+                // --- ERROR LOGS START ---
+                console.error("%c--- LOGIN ERROR CAUGHT ---", "color: red; font-weight: bold");
+                console.error("Error Name:", err.name);
+                console.error("Error Message:", err.message);
+                console.error("Full Error Object:", err);
+                // --- ERROR LOGS END ---
+
+                if (err.name === 'TypeError' && err.message === 'Failed to fetch') {
+                    showError('⚠️ Connection Failed! (Check Console F12)\n\nPossible causes:\n1. You are running this in the Chat Preview (HTTPS). You MUST download this file and run it via "python -m http.server 5500".\n2. Django is not running on port 8000.\n3. CORS settings in Django settings.py do not allow http://127.0.0.1:5500.');
+                } else {
+                    showError('Error connecting to server: ' + err.message);
+                }
+            }
+        }
+
+        async function getUserData() {
+            console.log("%c--- GET USER DATA STARTED ---", "color: blue");
+            try {
+                const response = await fetch(`${BASE_URL}/user/`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                    // "include" tells the browser to SEND the cookie with the request
+                    credentials: 'include'
+                });
+
+                console.log("Get User Status:", response.status);
+                const data = await response.json();
+                console.log("Get User Data:", data);
+                document.getElementById('response-output').textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                console.error("Get User Error:", err);
+                document.getElementById('response-output').textContent = 'Error: ' + err;
+            }
+        }
+
+        async function logout() {
+            console.log("Logging out...");
+            try {
+                await fetch(`${BASE_URL}/logout/`, {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                document.getElementById('login-section').classList.remove('hidden');
+                document.getElementById('dashboard-section').classList.add('hidden');
+                document.getElementById('response-output').textContent = "Logged out successfully.";
+                document.getElementById('username').value = '';
+                document.getElementById('password').value = '';
+            } catch (err) {
+                console.error("Logout failed:", err);
+                alert('Logout failed: ' + err.message);
+            }
+        }
+    </script>
+</body>
+
+</html>
