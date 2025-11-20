@@ -1,14 +1,17 @@
 from django.shortcuts import get_object_or_404
-from rest_framework import viewsets, filters, permissions, mixins, status, generics
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.response import Response
-from rest_framework.decorators import action
 from django.db import transaction  # for safe stock management
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from rest_framework import viewsets, filters, permissions, mixins, status, generics
+from rest_framework.response import Response
+from rest_framework.decorators import action
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
 
 import stripe
@@ -25,10 +28,6 @@ from .serializers import (
 )
 from .permissions import IsAdminOrReadOnly
 from .filters import ProductFilter
-
-
-# CONFIGURE STRIPE
-stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 # Create your views here.
@@ -380,7 +379,7 @@ class LoginView(APIView):
                 httponly=True,
                 secure=not settings.DEBUG,
                 samesite="Lax",
-                max_age=300,  # 5 minutes
+                max_age=3600,  # 1 hour
             )
 
             # Set Refresh Token Cookie
@@ -390,7 +389,7 @@ class LoginView(APIView):
                 httponly=True,
                 secure=not settings.DEBUG,
                 samesite="Lax",
-                max_age=86400,  # 1 day
+                max_age=604800,  # 7 days
             )
             return response
 
@@ -407,11 +406,50 @@ class LogoutView(APIView):
         return response
 
 
+class CookieTokenRefreshView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        # 1. Get the Refresh Token from the cookie
+        refresh_token = request.COOKIES.get("refresh_token")
+
+        if not refresh_token:
+            return Response(
+                {"error": "No refresh token found"}, status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        try:
+            refresh = RefreshToken(refresh_token)
+
+            new_access_token = str(refresh.access_token)
+
+            response = Response(
+                {"message": "Access token refreshed"}, status=status.HTTP_200_OK
+            )
+
+            # 4. Set the NEW Access Token in the cookie
+            response.set_cookie(
+                key="access_token",
+                value=new_access_token,
+                httponly=True,
+                secure=not settings.DEBUG,
+                samesite="Lax",
+                max_age=3600,  # 1 hour
+            )
+
+            return response
+
+        except (TokenError, InvalidToken):
+            return Response(
+                {"error": "Invalid or expired refresh token"},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+
 # --- User --- #
 class UserView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         serializer = UserDetailSerializer(request.user)
-        print("serializer is working: ", serializer.data)
         return Response(serializer.data)
