@@ -1,3 +1,4 @@
+from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction  # for safe stock management
 from django.contrib.auth.models import User
@@ -121,14 +122,8 @@ class CartViewSet(
                         status=status.HTTP_403_FORBIDDEN,
                     )
 
-                product = Product.objects.get(pk=product_id)
-
-                cart_item, item_created = CartItem.objects.get_or_create(
-                    cart=cart, product=product, defaults={"quantity": quantity}
-                )
-
-                quantity_to_add = quantity
-
+                product = get_object_or_404(Product, pk=product_id)
+                
                 if product.in_stock < quantity:
                     return Response(
                         {
@@ -137,13 +132,17 @@ class CartViewSet(
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
-                # --- INVENTORY UPDATE ---
-                product.in_stock -= quantity_to_add
-                product.save()
+                cart_item, item_created = CartItem.objects.get_or_create(
+                    cart=cart, product=product, defaults={"quantity": 0}
+                )
 
                 # --- CART UPDATE ---
-                cart_item.quantity += quantity_to_add
+                cart_item.quantity += quantity
                 cart_item.save()
+
+                # --- INVENTORY UPDATE ---
+                product.in_stock -= quantity
+                product.save()
 
                 cart.refresh_from_db()
                 serializer = CartSerializer(cart)
