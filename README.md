@@ -155,14 +155,15 @@ python manage.py test
 
 ## 🛒 **Shopping Cart**
 
-| Method | Endpoint                   | Description                         |
-| ------ | -------------------------- | ----------------------------------- |
-| GET    | `/cart/my_cart/`           | Get active shopping cart            |
-| GET    | `/cart/`                   | List order history (paid carts)     |
-| POST   | `/cart/add_item/`          | Add item to cart                    |
-| POST   | `/cart/checkout/`          | Initialize Stripe PaymentIntent     |
-| POST   | `/cart/confirm_payment/`   | Finalize order after Stripe success |
-| POST   | `/cart/clear_active_cart/` | Empty the current active cart       |
+| Method | Endpoint                   | Description                                                                                              |
+| ------ | -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| GET    | `/cart/my_cart/`           | Get active shopping cart                                                                                 |
+| GET    | `/cart/`                   | List order history (paid carts)                                                                          |
+| POST   | `/cart/add_item/`          | Add item to cart                                                                                         |
+| POST   | `/cart/remove_item/`       | Remove item or decrease quantity in active cart (body: `{ "product_id": <id>, "quantity": <optional> }`) |
+| POST   | `/cart/checkout/`          | Initialize Stripe PaymentIntent                                                                          |
+| POST   | `/cart/confirm_payment/`   | Finalize order after Stripe success                                                                      |
+| POST   | `/cart/clear_active_cart/` | Empty the current active cart                                                                            |
 
 ---
 
