@@ -123,7 +123,7 @@ class CartViewSet(
                     )
 
                 product = get_object_or_404(Product, pk=product_id)
-                
+
                 if product.in_stock < quantity:
                     return Response(
                         {
@@ -162,6 +162,65 @@ class CartViewSet(
                     {"error": f"An unexpected error occurred: {str(e)}"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+    @action(detail=False, methods=["post"], url_path="remove_item")
+    def remove_item(self, request):
+        product_id = request.data.get("product_id")
+        quantity_to_remove = request.data.get(
+            "quantity"
+        )  # if user want to decrease quantity instead of removing whole itme
+
+        if not product_id:
+            return Response(
+                {"error": "product ID is required to remove item"}, status=400
+            )
+
+        with transaction.atomic():
+            cart = get_active_cart(user=request.user)
+            if cart.status != "Active":
+                return Response(
+                    {"error": "Cart is Closed, Can't remove item from it."}, status=403
+                )
+
+            try:
+                cart_item = CartItem.objects.get(cart=cart, product_id=product_id)
+            except CartItem.DoesNotExist:
+                return Response({"error": "Item not found in cart"}, status=404)
+
+            # check if user want to decrease quantity of the item
+            if quantity_to_remove:
+                try:
+                    qtr = int(quantity_to_remove)
+                    if qtr < 1:
+                        raise ValueError
+                except ValueError:
+                    return Response(
+                        {"error": "Quantity must be positive integer number"},
+                        status=400,
+                    )
+
+                if qtr >= cart_item.quantity:
+                    # remove item
+                    self._delete_item(cart_item)
+                    message = "Item removed completely"
+                else:
+                    # decrease item quantity
+                    cart_item.quantity -= qtr
+                    cart_item.save()
+
+                    # return to stock
+                    cart_item.product.in_stock += qtr
+                    cart_item.product.in_stock.save()
+
+                    message = "Quantity updated"
+            else:
+                # if no quantity provided, delete whole item from cart
+                self._delete_item(cart_item)
+                message = "Item removed completely"
+
+            cart.refresh_from_db()
+            serializer = CartSerializer(cart)
+            return Response({"message": message, "cart": serializer.data})
 
     # 3. CHECKOUT (POST /cart/checkout/) - Converts active cart to 'Paid'
     @action(detail=False, methods=["post"], url_path="checkout")
